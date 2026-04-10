@@ -62,7 +62,6 @@ if [[ ! -f "$SCRIPT_DIR/import_fdc_to_mysql.py" ]]; then
 fi
 
 APP_DIR="/opt/usda_api"
-DATA_DIR="$APP_DIR/data"
 DATASET_WORKDIR="$APP_DIR/dataset"
 SYSTEMD_UNIT="/etc/systemd/system/usda_api.service"
 
@@ -124,8 +123,7 @@ if ! id -u usda_api >/dev/null 2>&1; then
 fi
 
 say "Preparing app directory at $APP_DIR..."
-mkdir -p "$APP_DIR" "$DATA_DIR" "$DATASET_WORKDIR"
-chmod 700 "$DATA_DIR"
+mkdir -p "$APP_DIR" "$DATASET_WORKDIR"
 
 say "Deploying application files..."
 rsync -a --delete "$SCRIPT_DIR/usda_api/" "$APP_DIR/"
@@ -175,8 +173,8 @@ DB_PASSWORD=${DB_PASSWORD}
 
 SQL_HISTORY_MAX=200
 
-KEYSTORE_PATH=./data/keys.json
-ADMIN_STORE_PATH=./data/admin_users.json
+KEYSTORE_PATH=/var/lib/usda_api/keys.json
+ADMIN_STORE_PATH=/var/lib/usda_api/admin_users.json
 SESSION_SECRET=${SESSION_SECRET}
 SESSION_COOKIE_SECURE=0
 
@@ -203,7 +201,11 @@ User=usda_api
 Group=usda_api
 WorkingDirectory=/opt/usda_api
 EnvironmentFile=/opt/usda_api/.env
-ExecStart=/usr/bin/node /opt/usda_api/src/server.js
+Environment=KEYSTORE_PATH=/var/lib/usda_api/keys.json
+Environment=ADMIN_STORE_PATH=/var/lib/usda_api/admin_users.json
+StateDirectory=usda_api
+StateDirectoryMode=0700
+ExecStart=/usr/bin/env node /opt/usda_api/src/server.js
 Restart=on-failure
 RestartSec=3
 
@@ -211,7 +213,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/usda_api/data
+ReadWritePaths=/var/lib/usda_api
 
 [Install]
 WantedBy=multi-user.target
