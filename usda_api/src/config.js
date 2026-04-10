@@ -17,7 +17,7 @@ function envInt(name, fallback) {
 
 const config = {
   port: envInt("PORT", 8080),
-  bindHost: env("BIND_HOST", "127.0.0.1"),
+  bindHost: env("BIND_HOST", "0.0.0.0"),
   db: {
     name: env("DB_NAME", "usdafooddb"),
     user: env("DB_USER", "foodie"),

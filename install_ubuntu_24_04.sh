@@ -178,7 +178,7 @@ if [[ ! -f "$APP_DIR/.env" ]]; then
   SESSION_SECRET="$(openssl rand -hex 32)"
   cat > "$APP_DIR/.env" <<EOF
 PORT=8080
-BIND_HOST=127.0.0.1
+BIND_HOST=0.0.0.0
 
 DB_CONNECT_MODE=tcp
 DB_HOST=${DB_HOST}

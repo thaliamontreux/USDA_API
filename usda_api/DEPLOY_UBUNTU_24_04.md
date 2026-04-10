@@ -37,7 +37,7 @@ Create `/opt/usda_api/.env`:
 
 ```bash
 PORT=8080
-BIND_HOST=127.0.0.1
+BIND_HOST=0.0.0.0
 
 DB_NAME=usdafooddb
 DB_USER=foodie
