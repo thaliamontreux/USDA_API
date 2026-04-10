@@ -1,4 +1,5 @@
 let _webauthn = null;
+const crypto = require("crypto");
 
 async function _loadWebAuthn() {
   if (_webauthn) return _webauthn;
@@ -36,6 +37,15 @@ function buildAllowList(user) {
   }));
 }
 
+function userIdToBytes(userId) {
+  const s = String(userId || "");
+  const hex = s.replace(/-/g, "");
+  if (/^[0-9a-fA-F]{32}$/.test(hex)) {
+    return Buffer.from(hex, "hex");
+  }
+  return crypto.createHash("sha256").update(s, "utf8").digest();
+}
+
 async function registrationOptions({ rpID, rpName, origin, user }) {
   const {
     generateRegistrationOptions,
@@ -43,7 +53,7 @@ async function registrationOptions({ rpID, rpName, origin, user }) {
   return generateRegistrationOptions({
     rpName,
     rpID,
-    userID: user.id,
+    userID: userIdToBytes(user.id),
     userName: user.username,
     attestationType: "none",
     excludeCredentials: buildExclusions(user),
