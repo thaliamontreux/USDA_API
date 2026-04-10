@@ -76,6 +76,22 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1
 }
 
+ensure_env_kv() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+
+  if [[ ! -f "$file" ]]; then
+    return 0
+  fi
+
+  if grep -q "^${key}=" "$file"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$file"
+  else
+    echo "${key}=${value}" >> "$file"
+  fi
+}
+
 mysql_exec_root() {
   mysql -uroot -e "$1"
 }
@@ -186,6 +202,14 @@ EOF
   chmod 600 "$APP_DIR/.env"
 else
   say "Environment file already exists at $APP_DIR/.env (leaving unchanged)."
+fi
+
+ensure_env_kv "$APP_DIR/.env" "KEYSTORE_PATH" "/var/lib/usda_api/keys.json"
+ensure_env_kv "$APP_DIR/.env" "ADMIN_STORE_PATH" "/var/lib/usda_api/admin_users.json"
+
+if [[ -f "$APP_DIR/.env" ]]; then
+  chown usda_api:usda_api "$APP_DIR/.env"
+  chmod 600 "$APP_DIR/.env"
 fi
 
 say "Creating systemd service..."
