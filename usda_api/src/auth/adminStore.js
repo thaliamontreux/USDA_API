@@ -15,6 +15,19 @@ function newId() {
   return crypto.randomUUID();
 }
 
+function normalizeRole(role) {
+  const r = String(role || "").toLowerCase();
+  if (r === "admin") return "admin";
+  return "user";
+}
+
+function normalizeKeyLimit(limit) {
+  if (limit === null || limit === undefined || limit === "") return 5;
+  const n = Number.parseInt(String(limit), 10);
+  if (!Number.isFinite(n) || n < 0) return 5;
+  return n;
+}
+
 class AdminStore {
   constructor(filePath) {
     this.filePath = filePath;
@@ -42,6 +55,8 @@ class AdminStore {
           {
             id: newId(),
             username: "admin",
+            role: "admin",
+            apiKeyLimit: 5,
             passwordHash,
             mustChangePassword: true,
             createdAt: nowIso(),
@@ -57,6 +72,45 @@ class AdminStore {
         ],
       };
       await this.save();
+    } else {
+      let changed = false;
+      for (const u of this.state.users) {
+        if (!u.role) {
+          u.role = u.username === "admin" ? "admin" : "user";
+          changed = true;
+        } else {
+          const nr = normalizeRole(u.role);
+          if (nr !== u.role) {
+            u.role = nr;
+            changed = true;
+          }
+        }
+
+        if (u.apiKeyLimit === undefined || u.apiKeyLimit === null || u.apiKeyLimit === "") {
+          u.apiKeyLimit = 5;
+          changed = true;
+        } else {
+          const nl = normalizeKeyLimit(u.apiKeyLimit);
+          if (nl !== u.apiKeyLimit) {
+            u.apiKeyLimit = nl;
+            changed = true;
+          }
+        }
+
+        if (!u.totp) {
+          u.totp = { enabled: false, secretBase32: "" };
+          changed = true;
+        }
+        if (!u.webauthn) {
+          u.webauthn = { credentials: [] };
+          changed = true;
+        }
+        if (!Array.isArray(u.webauthn.credentials)) {
+          u.webauthn.credentials = [];
+          changed = true;
+        }
+      }
+      if (changed) await this.save();
     }
 
     return this.state;
@@ -85,6 +139,112 @@ class AdminStore {
     if (!u) return { ok: false, user: null };
     const ok = await bcrypt.compare(String(password || ""), u.passwordHash);
     return { ok, user: ok ? u : null };
+  }
+
+  async listUsers() {
+    await this.load();
+    return this.state.users
+      .slice()
+      .sort((a, b) => String(a.username).localeCompare(String(b.username)))
+      .map((u) => ({
+        id: u.id,
+        username: u.username,
+        role: normalizeRole(u.role),
+        apiKeyLimit: normalizeKeyLimit(u.apiKeyLimit),
+        mustChangePassword: Boolean(u.mustChangePassword),
+        createdAt: u.createdAt || null,
+        updatedAt: u.updatedAt || null,
+      }));
+  }
+
+  async createUser({ username, password, role, apiKeyLimit }) {
+    await this.load();
+    const uname = String(username || "").trim();
+    if (!uname) {
+      const err = new Error("Username required");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const exists = this.state.users.find((x) => x.username === uname);
+    if (exists) {
+      const err = new Error("Username already exists");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const pw = String(password || "");
+    if (pw.length < 6) {
+      const err = new Error("Password must be at least 6 characters");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const u = {
+      id: newId(),
+      username: uname,
+      role: normalizeRole(role),
+      apiKeyLimit: normalizeKeyLimit(apiKeyLimit),
+      passwordHash: bcrypt.hashSync(pw, 12),
+      mustChangePassword: true,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      totp: { enabled: false, secretBase32: "" },
+      webauthn: { credentials: [] },
+    };
+
+    this.state.users.push(u);
+    await this.save();
+    return { id: u.id, username: u.username, role: u.role, apiKeyLimit: u.apiKeyLimit };
+  }
+
+  async setRole(userId, role) {
+    await this.load();
+    const u = this.state.users.find((x) => x.id === userId);
+    if (!u) {
+      const err = new Error("User not found");
+      err.statusCode = 400;
+      throw err;
+    }
+    u.role = normalizeRole(role);
+    u.updatedAt = nowIso();
+    await this.save();
+    return { id: u.id, username: u.username, role: u.role };
+  }
+
+  async setApiKeyLimit(userId, apiKeyLimit) {
+    await this.load();
+    const u = this.state.users.find((x) => x.id === userId);
+    if (!u) {
+      const err = new Error("User not found");
+      err.statusCode = 400;
+      throw err;
+    }
+    u.apiKeyLimit = normalizeKeyLimit(apiKeyLimit);
+    u.updatedAt = nowIso();
+    await this.save();
+    return { id: u.id, username: u.username, apiKeyLimit: u.apiKeyLimit };
+  }
+
+  async resetPassword(userId, newPassword) {
+    await this.load();
+    const u = this.state.users.find((x) => x.id === userId);
+    if (!u) {
+      const err = new Error("User not found");
+      err.statusCode = 400;
+      throw err;
+    }
+    const pw = String(newPassword || "");
+    if (pw.length < 6) {
+      const err = new Error("Password must be at least 6 characters");
+      err.statusCode = 400;
+      throw err;
+    }
+    u.passwordHash = bcrypt.hashSync(pw, 12);
+    u.mustChangePassword = true;
+    u.updatedAt = nowIso();
+    await this.save();
+    return { id: u.id, username: u.username };
   }
 
   async setPassword(userId, newPassword, mustChangePassword) {

@@ -21,6 +21,10 @@ function generateApiKey() {
   return crypto.randomBytes(32).toString("hex");
 }
 
+function newId() {
+  return crypto.randomUUID();
+}
+
 function maskKey(key) {
   const s = String(key || "");
   if (s.length <= 8) return "********";
@@ -51,26 +55,29 @@ class KeyStore {
     }
 
     if (!this.state || !Array.isArray(this.state.keys)) {
-      const { key: key1 } = await this.rotate("key1", true);
-      const { key: key2 } = await this.rotate("key2", true);
+      const key1 = generateApiKey();
+      const key2 = generateApiKey();
+      const now = new Date().toISOString();
       this.state = {
-        version: 1,
+        version: 2,
         keys: [
           {
             id: "key1",
+            ownerUsername: "admin",
             enabled: true,
             keyHash: sha256Hex(key1),
             last4: String(key1).slice(-4),
-            createdAt: new Date().toISOString(),
-            rotatedAt: new Date().toISOString(),
+            createdAt: now,
+            rotatedAt: now,
           },
           {
             id: "key2",
+            ownerUsername: "admin",
             enabled: true,
             keyHash: sha256Hex(key2),
             last4: String(key2).slice(-4),
-            createdAt: new Date().toISOString(),
-            rotatedAt: new Date().toISOString(),
+            createdAt: now,
+            rotatedAt: now,
           },
         ],
       };
@@ -79,6 +86,24 @@ class KeyStore {
       return { ...this.state, bootstrapKeys: { key1, key2 } };
     }
 
+    let changed = false;
+    if (!this.state.version || this.state.version < 2) {
+      this.state.version = 2;
+      changed = true;
+    }
+
+    for (const k of this.state.keys) {
+      if (!k.ownerUsername) {
+        k.ownerUsername = "admin";
+        changed = true;
+      }
+      if (!k.id) {
+        k.id = newId();
+        changed = true;
+      }
+    }
+
+    if (changed) await this.save();
     return this.state;
   }
 
@@ -88,15 +113,40 @@ class KeyStore {
     await fs.writeFile(this.filePath, JSON.stringify(this.state, null, 2), "utf8");
   }
 
-  async list() {
+  async getById(id) {
     await this.load();
-    return this.state.keys.map((k) => ({
+    const keyId = String(id || "");
+    const k = this.state.keys.find((x) => String(x.id) === keyId);
+    if (!k) return null;
+    return {
       id: k.id,
+      ownerUsername: k.ownerUsername || null,
+      enabled: Boolean(k.enabled),
+      last4: k.last4 || null,
+      createdAt: k.createdAt || null,
+      rotatedAt: k.rotatedAt || null,
+    };
+  }
+
+  async list(ownerUsername = "") {
+    await this.load();
+    const o = String(ownerUsername || "").trim();
+    const keys = o
+      ? this.state.keys.filter((k) => String(k.ownerUsername || "") === o)
+      : this.state.keys;
+    return keys.map((k) => ({
+      id: k.id,
+      ownerUsername: k.ownerUsername || null,
       enabled: Boolean(k.enabled),
       last4: k.last4 || null,
       createdAt: k.createdAt || null,
       rotatedAt: k.rotatedAt || null,
     }));
+  }
+
+  async count(ownerUsername) {
+    const keys = await this.list(ownerUsername);
+    return keys.length;
   }
 
   async setEnabled(id, enabled) {
@@ -109,7 +159,51 @@ class KeyStore {
     }
     k.enabled = Boolean(enabled);
     await this.save();
-    return { id: k.id, enabled: Boolean(k.enabled), last4: k.last4 || null };
+    return {
+      id: k.id,
+      ownerUsername: k.ownerUsername || null,
+      enabled: Boolean(k.enabled),
+      last4: k.last4 || null,
+    };
+  }
+
+  async revoke(id) {
+    await this.load();
+    const idx = this.state.keys.findIndex((x) => x.id === id);
+    if (idx === -1) {
+      const err = new Error("Unknown key id");
+      err.statusCode = 400;
+      throw err;
+    }
+    const k = this.state.keys[idx];
+    this.state.keys.splice(idx, 1);
+    await this.save();
+    return { id: k.id, ownerUsername: k.ownerUsername || null };
+  }
+
+  async create(ownerUsername) {
+    await this.load();
+    const owner = String(ownerUsername || "").trim();
+    if (!owner) {
+      const err = new Error("Owner username required");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const key = generateApiKey();
+    const now = new Date().toISOString();
+    const rec = {
+      id: newId(),
+      ownerUsername: owner,
+      enabled: true,
+      keyHash: sha256Hex(key),
+      last4: String(key).slice(-4),
+      createdAt: now,
+      rotatedAt: now,
+    };
+    this.state.keys.push(rec);
+    await this.save();
+    return { id: rec.id, ownerUsername: rec.ownerUsername, key, masked: maskKey(key) };
   }
 
   async rotate(id, internal = false) {
@@ -137,7 +231,7 @@ class KeyStore {
 
     await this.save();
 
-    return { id: k.id, key, masked: maskKey(key) };
+    return { id: k.id, ownerUsername: k.ownerUsername || null, key, masked: maskKey(key) };
   }
 
   async validateKey(apiKey) {

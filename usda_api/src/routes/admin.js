@@ -97,6 +97,11 @@ function adminRouter(opts) {
         return;
       }
 
+       if (String(user.role || "user") !== "admin") {
+         res.redirect("/account");
+         return;
+       }
+
       if (user.mustChangePassword) {
         res.redirect("/admin/change-password");
         return;
@@ -153,6 +158,11 @@ function adminRouter(opts) {
     req.session.adminUserId = r.user.id;
     req.session.adminPasswordOk = true;
     req.session.adminMfaOk = false;
+
+     if (String(r.user.role || "user") !== "admin") {
+       res.redirect("/account");
+       return;
+     }
 
     if (r.user.mustChangePassword) {
       res.redirect("/admin/change-password");
@@ -806,6 +816,7 @@ function adminRouter(opts) {
           const enabled = k.enabled ? "<span class=\"pill ok\">enabled</span>" : "<span class=\"pill bad\">disabled</span>";
           return `
             <tr>
+              <td>${escapeHtml(k.ownerUsername || "")}</td>
               <td>${escapeHtml(k.id)}</td>
               <td>${enabled}</td>
               <td class="muted">****${escapeHtml(k.last4 || "")}</td>
@@ -817,6 +828,9 @@ function adminRouter(opts) {
                 <form method="post" action="/admin/keys/${encodeURIComponent(k.id)}/${k.enabled ? "disable" : "enable"}" style="display:inline">
                   <button type="submit" class="secondary">${k.enabled ? "Disable" : "Enable"}</button>
                 </form>
+                <form method="post" action="/admin/keys/${encodeURIComponent(k.id)}/revoke" style="display:inline">
+                  <button type="submit" class="danger">Revoke</button>
+                </form>
               </td>
             </tr>
           `;
@@ -825,11 +839,25 @@ function adminRouter(opts) {
 
       const body = `
         <div class="row" style="margin-bottom: 12px;">
-          <div><h1>USDA API Admin</h1><div class="muted">Manage two API keys for safe rotation.</div></div>
+          <div><h1>USDA API Admin</h1><div class="muted">Manage users and API keys.</div></div>
           <div style="text-align:right;">
             <form method="post" action="/admin/logout">
               <button type="submit" class="secondary">Logout</button>
             </form>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:12px;">
+          <div class="row">
+            <div>
+              <div><a href="/admin/users">Users</a></div>
+              <div class="muted">Create users and set per-user key limits (default 5; admin unlimited).</div>
+            </div>
+            <div style="text-align:right;">
+              <form method="post" action="/admin/keys/create" style="display:inline">
+                <button type="submit">Create admin key</button>
+              </form>
+            </div>
           </div>
         </div>
 
@@ -840,7 +868,7 @@ function adminRouter(opts) {
           <p class="muted">Keys are stored hashed; only the last 4 characters are shown. When you rotate a key, the new key is displayed once.</p>
           <table>
             <thead>
-              <tr><th>Id</th><th>Status</th><th>Masked</th><th>Rotated</th><th>Actions</th></tr>
+              <tr><th>User</th><th>Id</th><th>Status</th><th>Masked</th><th>Rotated</th><th>Actions</th></tr>
             </thead>
             <tbody>
               ${rows}
@@ -859,6 +887,208 @@ function adminRouter(opts) {
       `;
 
       res.type("html").send(renderPage("Admin", body));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.get("/users", requireAdminReady, async (req, res, next) => {
+    try {
+      const notice = req.query.notice ? String(req.query.notice) : "";
+      const users = await adminStore.listUsers();
+      const withCounts = await Promise.all(
+        users.map(async (u) => ({
+          ...u,
+          keyCount: await keyStore.count(u.username),
+        }))
+      );
+
+      const rows = withCounts
+        .map((u) => {
+          const role = String(u.role || "user");
+          const isAdmin = role === "admin";
+          const limitLabel = isAdmin ? "∞" : String(u.apiKeyLimit);
+          return `
+            <tr>
+              <td>${escapeHtml(u.username)}</td>
+              <td>${escapeHtml(role)}</td>
+              <td class="muted">${escapeHtml(String(u.keyCount))}/${escapeHtml(limitLabel)}</td>
+              <td class="muted">${escapeHtml(u.updatedAt || "")}</td>
+              <td>
+                <form method="post" action="/admin/users/${encodeURIComponent(u.id)}/limit" style="display:inline">
+                  <input name="limit" value="${escapeHtml(String(u.apiKeyLimit))}" style="max-width:120px; display:inline" />
+                  <button type="submit" class="secondary">Set limit</button>
+                </form>
+                <form method="post" action="/admin/users/${encodeURIComponent(u.id)}/role" style="display:inline">
+                  <input name="role" value="${escapeHtml(role)}" style="max-width:120px; display:inline" />
+                  <button type="submit" class="secondary">Set role</button>
+                </form>
+                <form method="post" action="/admin/users/${encodeURIComponent(u.id)}/reset-password" style="display:inline">
+                  <input name="password" placeholder="New password" style="max-width:180px; display:inline" />
+                  <button type="submit" class="secondary">Reset password</button>
+                </form>
+                <form method="post" action="/admin/users/${encodeURIComponent(u.id)}/keys/create" style="display:inline">
+                  <button type="submit">Create key</button>
+                </form>
+              </td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      const body = `
+        <div class="row" style="margin-bottom: 12px;">
+          <div><h1>Users</h1><div class="muted">Default limit is 5 keys per user. Admins have unlimited keys.</div></div>
+          <div style="text-align:right;"><a href="/admin">Back</a></div>
+        </div>
+
+        ${notice ? `<div class=\"card\" style=\"margin-bottom:12px;\"><div>${escapeHtml(notice)}</div></div>` : ""}
+
+        <div class="card" style="margin-bottom:12px;">
+          <h1>Create user</h1>
+          <form method="post" action="/admin/users/create">
+            <label>Username</label>
+            <input name="username" autocomplete="username" />
+            <label>Temporary password</label>
+            <input name="password" type="password" autocomplete="new-password" />
+            <label>Role (user/admin)</label>
+            <input name="role" value="user" />
+            <label>Key limit (default 5)</label>
+            <input name="limit" value="5" />
+            <div style="height: 14px"></div>
+            <button type="submit">Create</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h1>Existing users</h1>
+          <table>
+            <thead>
+              <tr><th>Username</th><th>Role</th><th>Keys</th><th>Updated</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </div>
+      `;
+
+      res.type("html").send(renderPage("Users", body));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.post("/users/create", requireAdminReady, async (req, res, next) => {
+    try {
+      const username = String(req.body.username || "").trim();
+      const password = String(req.body.password || "");
+      const role = String(req.body.role || "user").trim();
+      const limit = String(req.body.limit || "").trim();
+      await adminStore.createUser({ username, password, role, apiKeyLimit: limit });
+      res.redirect("/admin/users?notice=User%20created");
+    } catch (e) {
+      res.redirect(`/admin/users?notice=${encodeURIComponent(String(e && e.message ? e.message : e))}`);
+    }
+  });
+
+  router.post("/users/:id/limit", requireAdminReady, async (req, res) => {
+    const id = String(req.params.id || "");
+    const limit = String(req.body.limit || "").trim();
+    try {
+      await adminStore.setApiKeyLimit(id, limit);
+      res.redirect("/admin/users?notice=Limit%20updated");
+    } catch (e) {
+      res.redirect(`/admin/users?notice=${encodeURIComponent(String(e && e.message ? e.message : e))}`);
+    }
+  });
+
+  router.post("/users/:id/role", requireAdminReady, async (req, res) => {
+    const id = String(req.params.id || "");
+    const role = String(req.body.role || "user").trim();
+    try {
+      await adminStore.setRole(id, role);
+      res.redirect("/admin/users?notice=Role%20updated");
+    } catch (e) {
+      res.redirect(`/admin/users?notice=${encodeURIComponent(String(e && e.message ? e.message : e))}`);
+    }
+  });
+
+  router.post("/users/:id/reset-password", requireAdminReady, async (req, res) => {
+    const id = String(req.params.id || "");
+    const password = String(req.body.password || "");
+    try {
+      await adminStore.resetPassword(id, password);
+      res.redirect("/admin/users?notice=Password%20reset");
+    } catch (e) {
+      res.redirect(`/admin/users?notice=${encodeURIComponent(String(e && e.message ? e.message : e))}`);
+    }
+  });
+
+  router.post("/users/:id/keys/create", requireAdminReady, async (req, res, next) => {
+    try {
+      const id = String(req.params.id || "");
+      const user = await adminStore.getById(id);
+      if (!user) {
+        res.redirect("/admin/users?notice=User%20not%20found");
+        return;
+      }
+
+      const role = String(user.role || "user");
+      if (role !== "admin") {
+        const limit = Number.isFinite(Number(user.apiKeyLimit)) ? Number(user.apiKeyLimit) : 5;
+        const used = await keyStore.count(user.username);
+        if (used >= limit) {
+          res.redirect("/admin/users?notice=Key%20limit%20reached");
+          return;
+        }
+      }
+
+      const r = await keyStore.create(user.username);
+      res.type("html").send(
+        renderPage(
+          "Key Created",
+          `
+          <div class="card">
+            <h1>New key created for ${escapeHtml(r.ownerUsername)}</h1>
+            <p class="bad"><strong>Copy this key now</strong>. You will not be able to view it again.</p>
+            <div class="card" style="margin-top:12px;">
+              <div style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; word-break: break-all;">${escapeHtml(
+                r.key
+              )}</div>
+            </div>
+            <div style="height: 14px"></div>
+            <a href="/admin/users?notice=Key%20created">Back</a>
+          </div>
+          `
+        )
+      );
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.post("/keys/create", requireAdminReady, async (req, res, next) => {
+    try {
+      const r = await keyStore.create("admin");
+      res.type("html").send(
+        renderPage(
+          "Key Created",
+          `
+          <div class="card">
+            <h1>New admin key created</h1>
+            <p class="bad"><strong>Copy this key now</strong>. You will not be able to view it again.</p>
+            <div class="card" style="margin-top:12px;">
+              <div style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; word-break: break-all;">${escapeHtml(
+                r.key
+              )}</div>
+            </div>
+            <div style="height: 14px"></div>
+            <a href="/admin?notice=Admin%20key%20created">Back</a>
+          </div>
+          `
+        )
+      );
     } catch (e) {
       next(e);
     }
@@ -904,6 +1134,16 @@ function adminRouter(opts) {
       const id = String(req.params.id || "");
       await keyStore.setEnabled(id, false);
       res.redirect("/admin?notice=Key%20disabled");
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.post("/keys/:id/revoke", requireAdminReady, async (req, res, next) => {
+    try {
+      const id = String(req.params.id || "");
+      await keyStore.revoke(id);
+      res.redirect("/admin?notice=Key%20revoked");
     } catch (e) {
       next(e);
     }

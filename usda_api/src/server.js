@@ -9,6 +9,7 @@ const { nutrientsRouter } = require("./routes/nutrients");
 const { brandedRouter } = require("./routes/branded");
 const { debugRouter } = require("./routes/debug");
 const { adminRouter } = require("./routes/admin");
+const { accountRouter } = require("./routes/account");
 const { KeyStore } = require("./auth/keyStore");
 const { apiKeyMiddleware } = require("./auth/apiKeyAuth");
 const { AdminStore } = require("./auth/adminStore");
@@ -78,6 +79,14 @@ app.use(
   })
 );
 
+app.use(
+  "/account",
+  accountRouter({
+    keyStore,
+    adminStore,
+  })
+);
+
 app.get("/health", async (req, res) => {
   try {
     const { rows } = await query("SELECT 1 AS ok", []);
@@ -116,6 +125,7 @@ app.get("/", (req, res) => {
       "/health",
       "/healthz",
       "/admin",
+      "/account",
       "/api/v1/foods/search",
       "/api/v1/foods/:fdcId",
       "/api/v1/foods/:fdcId/nutrients",
