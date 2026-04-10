@@ -409,6 +409,8 @@ function adminRouter(opts) {
             <div class="muted">Registered passkeys: ${mfa.passkeys}</div>
             <div style="height:10px"></div>
             <button id="btnRegister" type="button">Register passkey</button>
+            <div style="height:10px"></div>
+            <div id="status" class="muted"></div>
           </div>
 
           <div style="height: 14px"></div>
@@ -416,6 +418,13 @@ function adminRouter(opts) {
         </div>
 
         <script>
+          const statusEl = document.getElementById('status');
+          function setStatus(msg, kind){
+            if (!statusEl) return;
+            statusEl.textContent = msg || '';
+            statusEl.className = kind === 'bad' ? 'bad' : (kind === 'ok' ? 'ok' : 'muted');
+          }
+
           async function b64urlToBuf(b64url){
             const pad = '='.repeat((4 - (b64url.length % 4)) % 4);
             const base64 = (b64url + pad).replace(/-/g,'+').replace(/_/g,'/');
@@ -432,9 +441,30 @@ function adminRouter(opts) {
             return base64;
           }
 
+          async function readJsonResponse(r){
+            const ct = (r.headers.get('content-type') || '').toLowerCase();
+            if (ct.includes('application/json')) return r.json();
+            const t = await r.text();
+            throw new Error('Expected JSON response but got: ' + (t ? t.slice(0, 200) : '(empty)'));
+          }
+
           async function register(){
-            const r1 = await fetch('/admin/webauthn/register/options');
-            const opts = await r1.json();
+            if (!window.isSecureContext) {
+              throw new Error('WebAuthn requires HTTPS (or http://localhost).');
+            }
+            if (!navigator.credentials || !navigator.credentials.create) {
+              throw new Error('WebAuthn not supported in this browser.');
+            }
+
+            setStatus('Requesting registration options…');
+            const r1 = await fetch('/admin/webauthn/register/options', { credentials: 'same-origin' });
+            if (!r1.ok) {
+              throw new Error('Failed to get registration options (HTTP ' + r1.status + ').');
+            }
+            const opts = await readJsonResponse(r1);
+            if (!opts || !opts.challenge || !opts.user || !opts.user.id) {
+              throw new Error('Invalid registration options returned by server.');
+            }
 
             opts.challenge = await b64urlToBuf(opts.challenge);
             opts.user.id = await b64urlToBuf(opts.user.id);
@@ -444,7 +474,9 @@ function adminRouter(opts) {
               }
             }
 
+            setStatus('Waiting for browser passkey prompt…');
             const cred = await navigator.credentials.create({ publicKey: opts });
+            if (!cred) throw new Error('Passkey registration was cancelled.');
             const response = {
               id: cred.id,
               rawId: bufToB64url(cred.rawId),
@@ -457,18 +489,32 @@ function adminRouter(opts) {
               transports: cred.response.getTransports ? cred.response.getTransports() : [],
             };
 
+            setStatus('Verifying passkey with server…');
             const r2 = await fetch('/admin/webauthn/register/verify', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(response)
+              body: JSON.stringify(response),
+              credentials: 'same-origin',
             });
-            const out = await r2.json();
+            if (!r2.ok) {
+              const t = await r2.text();
+              throw new Error('Server rejected registration (HTTP ' + r2.status + '): ' + (t ? t.slice(0, 200) : '(empty)'));
+            }
+            const out = await readJsonResponse(r2);
             if (!out.ok) throw new Error(out.error || 'Registration failed');
+            setStatus('Passkey registered.', 'ok');
             window.location.href = '/admin/passkeys?notice=Passkey%20registered';
           }
 
           document.getElementById('btnRegister').addEventListener('click', () => {
-            register().catch(e => alert(String(e && e.message ? e.message : e)));
+            const btn = document.getElementById('btnRegister');
+            if (btn) btn.disabled = true;
+            setStatus('Starting passkey registration…');
+            register().catch(e => {
+              setStatus(String(e && e.message ? e.message : e), 'bad');
+            }).finally(() => {
+              if (btn) btn.disabled = false;
+            });
           });
         </script>
       `;
