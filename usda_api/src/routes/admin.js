@@ -88,6 +88,20 @@ function adminRouter(opts) {
 
   const router = express.Router();
 
+  function getEffectiveWebAuthnConfig(req) {
+    const host = req.get("host") || "";
+    const reqOrigin = `${req.protocol}://${host}`;
+    const reqRpID = req.hostname;
+
+    const useReqRpID = !rpID || rpID === "localhost";
+    const useReqOrigin = !origin || origin === "http://localhost:8080";
+
+    return {
+      rpID: useReqRpID ? reqRpID : rpID,
+      origin: useReqOrigin ? reqOrigin : origin,
+    };
+  }
+
   router.get("/static/passkeys.js", (req, res) => {
     res
       .type("application/javascript")
@@ -641,8 +655,11 @@ if (btn) {
         return;
       }
 
-      const opts = await registrationOptions({ rpID, rpName, origin, user });
+      const effective = getEffectiveWebAuthnConfig(req);
+      const opts = await registrationOptions({ rpID: effective.rpID, rpName, origin: effective.origin, user });
       req.session.webauthnRegChallenge = opts.challenge;
+      req.session.webauthnRegRpID = effective.rpID;
+      req.session.webauthnRegOrigin = effective.origin;
       res.json(opts);
     } catch (e) {
       next(e);
@@ -663,9 +680,12 @@ if (btn) {
         return;
       }
 
+      const effectiveRpID = String(req.session.webauthnRegRpID || rpID || "");
+      const effectiveOrigin = String(req.session.webauthnRegOrigin || origin || "");
+
       const verification = await verifyRegistration({
-        rpID,
-        origin,
+        rpID: effectiveRpID,
+        origin: effectiveOrigin,
         expectedChallenge,
         response: req.body,
       });
@@ -684,6 +704,8 @@ if (btn) {
       });
 
       req.session.webauthnRegChallenge = "";
+      req.session.webauthnRegRpID = "";
+      req.session.webauthnRegOrigin = "";
       res.json({ ok: true });
     } catch (e) {
       next(e);
@@ -793,8 +815,11 @@ if (btn) {
         return;
       }
 
-      const opts = await authenticationOptions({ rpID, user });
+      const effective = getEffectiveWebAuthnConfig(req);
+      const opts = await authenticationOptions({ rpID: effective.rpID, user });
       req.session.webauthnAuthChallenge = opts.challenge;
+      req.session.webauthnAuthRpID = effective.rpID;
+      req.session.webauthnAuthOrigin = effective.origin;
       res.json(opts);
     } catch (e) {
       next(e);
@@ -815,6 +840,9 @@ if (btn) {
         return;
       }
 
+      const effectiveRpID = String(req.session.webauthnAuthRpID || rpID || "");
+      const effectiveOrigin = String(req.session.webauthnAuthOrigin || origin || "");
+
       const credentialId = String(req.body.id || "");
       const credential = (user.webauthn.credentials || []).find((c) => c.id === credentialId);
       if (!credential) {
@@ -823,8 +851,8 @@ if (btn) {
       }
 
       const verification = await verifyAuthentication({
-        rpID,
-        origin,
+        rpID: effectiveRpID,
+        origin: effectiveOrigin,
         expectedChallenge,
         response: req.body,
         credential,
@@ -842,6 +870,8 @@ if (btn) {
       );
 
       req.session.webauthnAuthChallenge = "";
+      req.session.webauthnAuthRpID = "";
+      req.session.webauthnAuthOrigin = "";
       req.session.adminMfaOk = true;
       res.json({ ok: true });
     } catch (e) {
