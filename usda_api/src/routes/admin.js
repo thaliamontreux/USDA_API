@@ -88,6 +88,197 @@ function adminRouter(opts) {
 
   const router = express.Router();
 
+  router.get("/static/passkeys.js", (req, res) => {
+    res
+      .type("application/javascript")
+      .send(`(function(){
+const statusEl = document.getElementById('status');
+function setStatus(msg, kind){
+  if (!statusEl) return;
+  statusEl.textContent = msg || '';
+  statusEl.className = kind === 'bad' ? 'bad' : (kind === 'ok' ? 'ok' : 'muted');
+}
+
+async function b64urlToBuf(b64url){
+  const pad = '='.repeat((4 - (b64url.length % 4)) % 4);
+  const base64 = (b64url + pad).replace(/-/g,'+').replace(/_/g,'/');
+  const raw = atob(base64);
+  const buf = new Uint8Array(raw.length);
+  for (let i=0;i<raw.length;i++) buf[i] = raw.charCodeAt(i);
+  return buf.buffer;
+}
+function bufToB64url(buf){
+  const bytes = new Uint8Array(buf);
+  let s='';
+  for (let i=0;i<bytes.length;i++) s += String.fromCharCode(bytes[i]);
+  const base64 = btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  return base64;
+}
+
+async function readJsonResponse(r){
+  const ct = (r.headers.get('content-type') || '').toLowerCase();
+  if (ct.includes('application/json')) return r.json();
+  const t = await r.text();
+  throw new Error('Expected JSON response but got: ' + (t ? t.slice(0, 200) : '(empty)'));
+}
+
+async function register(){
+  if (!window.isSecureContext) {
+    throw new Error('WebAuthn requires HTTPS (or http://localhost).');
+  }
+  if (!navigator.credentials || !navigator.credentials.create) {
+    throw new Error('WebAuthn not supported in this browser.');
+  }
+
+  setStatus('Requesting registration options…');
+  const r1 = await fetch('/admin/webauthn/register/options', { credentials: 'same-origin' });
+  if (!r1.ok) {
+    throw new Error('Failed to get registration options (HTTP ' + r1.status + ').');
+  }
+  const opts = await readJsonResponse(r1);
+  if (!opts || !opts.challenge || !opts.user || !opts.user.id) {
+    throw new Error('Invalid registration options returned by server.');
+  }
+
+  opts.challenge = await b64urlToBuf(opts.challenge);
+  opts.user.id = await b64urlToBuf(opts.user.id);
+  if (opts.excludeCredentials){
+    for (const c of opts.excludeCredentials){
+      c.id = await b64urlToBuf(c.id);
+    }
+  }
+
+  setStatus('Waiting for browser passkey prompt…');
+  const cred = await navigator.credentials.create({ publicKey: opts });
+  if (!cred) throw new Error('Passkey registration was cancelled.');
+  const response = {
+    id: cred.id,
+    rawId: bufToB64url(cred.rawId),
+    type: cred.type,
+    response: {
+      attestationObject: bufToB64url(cred.response.attestationObject),
+      clientDataJSON: bufToB64url(cred.response.clientDataJSON),
+    },
+    clientExtensionResults: cred.getClientExtensionResults(),
+    transports: cred.response.getTransports ? cred.response.getTransports() : [],
+  };
+
+  setStatus('Verifying passkey with server…');
+  const r2 = await fetch('/admin/webauthn/register/verify', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(response),
+    credentials: 'same-origin',
+  });
+  if (!r2.ok) {
+    const t = await r2.text();
+    throw new Error('Server rejected registration (HTTP ' + r2.status + '): ' + (t ? t.slice(0, 200) : '(empty)'));
+  }
+  const out = await readJsonResponse(r2);
+  if (!out.ok) throw new Error(out.error || 'Registration failed');
+  setStatus('Passkey registered.', 'ok');
+  window.location.href = '/admin/passkeys?notice=Passkey%20registered';
+}
+
+const btn = document.getElementById('btnRegister');
+if (btn) {
+  btn.addEventListener('click', () => {
+    btn.disabled = true;
+    setStatus('Starting passkey registration…');
+    register().catch(e => {
+      setStatus(String(e && e.message ? e.message : e), 'bad');
+    }).finally(() => {
+      btn.disabled = false;
+    });
+  });
+}
+})();`);
+  });
+
+  router.get("/static/mfa-passkey.js", (req, res) => {
+    res
+      .type("application/javascript")
+      .send(`(function(){
+async function b64urlToBuf(b64url){
+  const pad = '='.repeat((4 - (b64url.length % 4)) % 4);
+  const base64 = (b64url + pad).replace(/-/g,'+').replace(/_/g,'/');
+  const raw = atob(base64);
+  const buf = new Uint8Array(raw.length);
+  for (let i=0;i<raw.length;i++) buf[i] = raw.charCodeAt(i);
+  return buf.buffer;
+}
+function bufToB64url(buf){
+  const bytes = new Uint8Array(buf);
+  let s='';
+  for (let i=0;i<bytes.length;i++) s += String.fromCharCode(bytes[i]);
+  const base64 = btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  return base64;
+}
+async function readJsonResponse(r){
+  const ct = (r.headers.get('content-type') || '').toLowerCase();
+  if (ct.includes('application/json')) return r.json();
+  const t = await r.text();
+  throw new Error('Expected JSON response but got: ' + (t ? t.slice(0, 200) : '(empty)'));
+}
+
+async function passkeyAuth(){
+  if (!window.isSecureContext) {
+    throw new Error('WebAuthn requires HTTPS (or http://localhost).');
+  }
+  if (!navigator.credentials || !navigator.credentials.get) {
+    throw new Error('WebAuthn not supported in this browser.');
+  }
+
+  const r1 = await fetch('/admin/webauthn/auth/options', { credentials: 'same-origin' });
+  if (!r1.ok) throw new Error('Failed to get auth options (HTTP ' + r1.status + ').');
+  const opts = await readJsonResponse(r1);
+  opts.challenge = await b64urlToBuf(opts.challenge);
+  if (opts.allowCredentials){
+    for (const c of opts.allowCredentials){
+      c.id = await b64urlToBuf(c.id);
+    }
+  }
+
+  const a = await navigator.credentials.get({ publicKey: opts });
+  if (!a) throw new Error('Passkey authentication was cancelled.');
+
+  const response = {
+    id: a.id,
+    rawId: bufToB64url(a.rawId),
+    type: a.type,
+    response: {
+      authenticatorData: bufToB64url(a.response.authenticatorData),
+      clientDataJSON: bufToB64url(a.response.clientDataJSON),
+      signature: bufToB64url(a.response.signature),
+      userHandle: a.response.userHandle ? bufToB64url(a.response.userHandle) : null,
+    },
+    clientExtensionResults: a.getClientExtensionResults(),
+  };
+
+  const r2 = await fetch('/admin/webauthn/auth/verify', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(response),
+    credentials: 'same-origin',
+  });
+  if (!r2.ok) {
+    const t = await r2.text();
+    throw new Error('Server rejected authentication (HTTP ' + r2.status + '): ' + (t ? t.slice(0, 200) : '(empty)'));
+  }
+  const out = await readJsonResponse(r2);
+  if (!out.ok) throw new Error(out.error || 'Auth failed');
+  window.location.href = '/admin';
+}
+
+const btn = document.getElementById('btnPasskey');
+if (btn) {
+  btn.addEventListener('click', () => {
+    passkeyAuth().catch(e => alert(String(e && e.message ? e.message : e)));
+  });
+}
+})();`);
+  });
+
   async function getSessionUser(req) {
     const id = req.session ? req.session.adminUserId : null;
     if (!id) return null;
@@ -433,106 +624,7 @@ function adminRouter(opts) {
           <a href="/admin/setup-mfa">Back</a>
         </div>
 
-        <script>
-          const statusEl = document.getElementById('status');
-          function setStatus(msg, kind){
-            if (!statusEl) return;
-            statusEl.textContent = msg || '';
-            statusEl.className = kind === 'bad' ? 'bad' : (kind === 'ok' ? 'ok' : 'muted');
-          }
-
-          async function b64urlToBuf(b64url){
-            const pad = '='.repeat((4 - (b64url.length % 4)) % 4);
-            const base64 = (b64url + pad).replace(/-/g,'+').replace(/_/g,'/');
-            const raw = atob(base64);
-            const buf = new Uint8Array(raw.length);
-            for (let i=0;i<raw.length;i++) buf[i] = raw.charCodeAt(i);
-            return buf.buffer;
-          }
-          function bufToB64url(buf){
-            const bytes = new Uint8Array(buf);
-            let s='';
-            for (let i=0;i<bytes.length;i++) s += String.fromCharCode(bytes[i]);
-            const base64 = btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-            return base64;
-          }
-
-          async function readJsonResponse(r){
-            const ct = (r.headers.get('content-type') || '').toLowerCase();
-            if (ct.includes('application/json')) return r.json();
-            const t = await r.text();
-            throw new Error('Expected JSON response but got: ' + (t ? t.slice(0, 200) : '(empty)'));
-          }
-
-          async function register(){
-            if (!window.isSecureContext) {
-              throw new Error('WebAuthn requires HTTPS (or http://localhost).');
-            }
-            if (!navigator.credentials || !navigator.credentials.create) {
-              throw new Error('WebAuthn not supported in this browser.');
-            }
-
-            setStatus('Requesting registration options…');
-            const r1 = await fetch('/admin/webauthn/register/options', { credentials: 'same-origin' });
-            if (!r1.ok) {
-              throw new Error('Failed to get registration options (HTTP ' + r1.status + ').');
-            }
-            const opts = await readJsonResponse(r1);
-            if (!opts || !opts.challenge || !opts.user || !opts.user.id) {
-              throw new Error('Invalid registration options returned by server.');
-            }
-
-            opts.challenge = await b64urlToBuf(opts.challenge);
-            opts.user.id = await b64urlToBuf(opts.user.id);
-            if (opts.excludeCredentials){
-              for (const c of opts.excludeCredentials){
-                c.id = await b64urlToBuf(c.id);
-              }
-            }
-
-            setStatus('Waiting for browser passkey prompt…');
-            const cred = await navigator.credentials.create({ publicKey: opts });
-            if (!cred) throw new Error('Passkey registration was cancelled.');
-            const response = {
-              id: cred.id,
-              rawId: bufToB64url(cred.rawId),
-              type: cred.type,
-              response: {
-                attestationObject: bufToB64url(cred.response.attestationObject),
-                clientDataJSON: bufToB64url(cred.response.clientDataJSON),
-              },
-              clientExtensionResults: cred.getClientExtensionResults(),
-              transports: cred.response.getTransports ? cred.response.getTransports() : [],
-            };
-
-            setStatus('Verifying passkey with server…');
-            const r2 = await fetch('/admin/webauthn/register/verify', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(response),
-              credentials: 'same-origin',
-            });
-            if (!r2.ok) {
-              const t = await r2.text();
-              throw new Error('Server rejected registration (HTTP ' + r2.status + '): ' + (t ? t.slice(0, 200) : '(empty)'));
-            }
-            const out = await readJsonResponse(r2);
-            if (!out.ok) throw new Error(out.error || 'Registration failed');
-            setStatus('Passkey registered.', 'ok');
-            window.location.href = '/admin/passkeys?notice=Passkey%20registered';
-          }
-
-          document.getElementById('btnRegister').addEventListener('click', () => {
-            const btn = document.getElementById('btnRegister');
-            if (btn) btn.disabled = true;
-            setStatus('Starting passkey registration…');
-            register().catch(e => {
-              setStatus(String(e && e.message ? e.message : e), 'bad');
-            }).finally(() => {
-              if (btn) btn.disabled = false;
-            });
-          });
-        </script>
+        <script src="/admin/static/passkeys.js"></script>
       `;
 
       res.type("html").send(renderPage("Passkeys", body));
@@ -650,62 +742,7 @@ function adminRouter(opts) {
           </form>
         </div>
 
-        <script>
-          async function b64urlToBuf(b64url){
-            const pad = '='.repeat((4 - (b64url.length % 4)) % 4);
-            const base64 = (b64url + pad).replace(/-/g,'+').replace(/_/g,'/');
-            const raw = atob(base64);
-            const buf = new Uint8Array(raw.length);
-            for (let i=0;i<raw.length;i++) buf[i] = raw.charCodeAt(i);
-            return buf.buffer;
-          }
-          function bufToB64url(buf){
-            const bytes = new Uint8Array(buf);
-            let s='';
-            for (let i=0;i<bytes.length;i++) s += String.fromCharCode(bytes[i]);
-            const base64 = btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-            return base64;
-          }
-
-          async function passkeyAuth(){
-            const r1 = await fetch('/admin/webauthn/auth/options');
-            const opts = await r1.json();
-            opts.challenge = await b64urlToBuf(opts.challenge);
-            if (opts.allowCredentials){
-              for (const c of opts.allowCredentials){
-                c.id = await b64urlToBuf(c.id);
-              }
-            }
-            const a = await navigator.credentials.get({ publicKey: opts });
-            const response = {
-              id: a.id,
-              rawId: bufToB64url(a.rawId),
-              type: a.type,
-              response: {
-                authenticatorData: bufToB64url(a.response.authenticatorData),
-                clientDataJSON: bufToB64url(a.response.clientDataJSON),
-                signature: bufToB64url(a.response.signature),
-                userHandle: a.response.userHandle ? bufToB64url(a.response.userHandle) : null,
-              },
-              clientExtensionResults: a.getClientExtensionResults(),
-            };
-            const r2 = await fetch('/admin/webauthn/auth/verify', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(response)
-            });
-            const out = await r2.json();
-            if (!out.ok) throw new Error(out.error || 'Auth failed');
-            window.location.href = '/admin';
-          }
-
-          const btn = document.getElementById('btnPasskey');
-          if (btn) {
-            btn.addEventListener('click', () => {
-              passkeyAuth().catch(e => alert(String(e && e.message ? e.message : e)));
-            });
-          }
-        </script>
+        <script src="/admin/static/mfa-passkey.js"></script>
       `;
 
       res.type("html").send(renderPage("MFA", body));
