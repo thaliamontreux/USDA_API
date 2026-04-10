@@ -147,7 +147,8 @@ async function register(){
   setStatus('Requesting registration options…');
   const r1 = await fetch('/admin/webauthn/register/options', { credentials: 'same-origin' });
   if (!r1.ok) {
-    throw new Error('Failed to get registration options (HTTP ' + r1.status + ').');
+    const t = await r1.text();
+    throw new Error('Failed to get registration options (HTTP ' + r1.status + '): ' + (t ? t.slice(0, 200) : '(empty)'));
   }
   const opts = await readJsonResponse(r1);
   if (!opts || !opts.challenge || !opts.user || !opts.user.id) {
@@ -244,7 +245,10 @@ async function passkeyAuth(){
   }
 
   const r1 = await fetch('/admin/webauthn/auth/options', { credentials: 'same-origin' });
-  if (!r1.ok) throw new Error('Failed to get auth options (HTTP ' + r1.status + ').');
+  if (!r1.ok) {
+    const t = await r1.text();
+    throw new Error('Failed to get auth options (HTTP ' + r1.status + '): ' + (t ? t.slice(0, 200) : '(empty)'));
+  }
   const opts = await readJsonResponse(r1);
   opts.challenge = await b64urlToBuf(opts.challenge);
   if (opts.allowCredentials){
@@ -662,7 +666,13 @@ if (btn) {
       req.session.webauthnRegOrigin = effective.origin;
       res.json(opts);
     } catch (e) {
-      next(e);
+      process.stderr.write(
+        `[webauthn] register/options failed: ${String(e && e.message ? e.message : e)}\n`
+      );
+      if (e && e.stack) process.stderr.write(`${e.stack}\n`);
+      res
+        .status(500)
+        .json({ ok: false, error: String(e && e.message ? e.message : e) });
     }
   });
 
@@ -822,7 +832,13 @@ if (btn) {
       req.session.webauthnAuthOrigin = effective.origin;
       res.json(opts);
     } catch (e) {
-      next(e);
+      process.stderr.write(
+        `[webauthn] auth/options failed: ${String(e && e.message ? e.message : e)}\n`
+      );
+      if (e && e.stack) process.stderr.write(`${e.stack}\n`);
+      res
+        .status(500)
+        .json({ ok: false, error: String(e && e.message ? e.message : e) });
     }
   });
 
