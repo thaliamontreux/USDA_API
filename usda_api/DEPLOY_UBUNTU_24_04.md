@@ -2,12 +2,6 @@
 
 This guide deploys `usda_api` on Ubuntu 24.04 behind **Nginx + HTTPS**.
 
-If you want a fully automated "bare server" setup (APT installs + MySQL + dataset download/import + systemd service), use the installer script in the repo:
-
-```bash
-sudo ./install_ubuntu_24_04.sh
-```
-
 ## 0) Prereqs
 
 - Node.js 18+ (22 is fine)
@@ -61,8 +55,8 @@ DB_SOCKET_PATH=/var/run/mysqld/mysqld.sock
 SQL_HISTORY_MAX=200
 
 # API key + admin UI
-KEYSTORE_PATH=./data/keys.json
-ADMIN_STORE_PATH=./data/admin_users.json
+KEYSTORE_PATH=/var/lib/usda_api/keys.json
+ADMIN_STORE_PATH=/var/lib/usda_api/admin_users.json
 SESSION_SECRET=CHANGE_ME_TO_LONG_RANDOM
 SESSION_COOKIE_SECURE=1
 
@@ -88,16 +82,7 @@ You must also configure at least one MFA factor:
 
 ## 3) Key store permissions
 
-Keys are stored hashed at `./data/keys.json` relative to the app root.
-
-Recommended:
-
-```bash
-cd /opt/usda_api
-mkdir -p data
-chmod 700 data
-# keys.json will be created automatically on first start
-```
+Keys are stored hashed at `KEYSTORE_PATH`.
 
 ## 4) systemd service
 
@@ -112,7 +97,11 @@ After=network.target
 Type=simple
 WorkingDirectory=/opt/usda_api
 EnvironmentFile=/opt/usda_api/.env
-ExecStart=/usr/bin/node /opt/usda_api/src/server.js
+Environment=KEYSTORE_PATH=/var/lib/usda_api/keys.json
+Environment=ADMIN_STORE_PATH=/var/lib/usda_api/admin_users.json
+StateDirectory=usda_api
+StateDirectoryMode=0700
+ExecStart=/usr/bin/env node /opt/usda_api/src/server.js
 Restart=on-failure
 RestartSec=3
 
@@ -121,7 +110,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/usda_api/data
+ReadWritePaths=/var/lib/usda_api
 
 # If using MySQL socket, the service user must be able to read the socket.
 # Often the socket is readable by the mysql group.

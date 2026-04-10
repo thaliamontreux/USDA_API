@@ -6,7 +6,11 @@ After=network.target
 Type=simple
 WorkingDirectory=/opt/usda_api
 EnvironmentFile=/opt/usda_api/.env
-ExecStart=/usr/bin/node /opt/usda_api/src/server.js
+Environment=KEYSTORE_PATH=/var/lib/usda_api/keys.json
+Environment=ADMIN_STORE_PATH=/var/lib/usda_api/admin_users.json
+StateDirectory=usda_api
+StateDirectoryMode=0700
+ExecStart=/usr/bin/env node /opt/usda_api/src/server.js
 Restart=on-failure
 RestartSec=3
 
@@ -14,7 +18,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/usda_api/data
+ReadWritePaths=/var/lib/usda_api
 
 [Install]
 WantedBy=multi-user.target
