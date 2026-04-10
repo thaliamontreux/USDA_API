@@ -1,0 +1,20 @@
+[Unit]
+Description=USDA API (Node.js)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/usda_api
+EnvironmentFile=/opt/usda_api/.env
+ExecStart=/usr/bin/node /opt/usda_api/src/server.js
+Restart=on-failure
+RestartSec=3
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/usda_api/data
+
+[Install]
+WantedBy=multi-user.target

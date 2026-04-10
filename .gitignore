@@ -1,0 +1,21 @@
+# Never commit the USDA dataset dumps
+*.csv
+
+# Python
+__pycache__/
+*.pyc
+
+# Logs
+logs/
+*.log
+
+# Virtual envs
+.venv/
+.venc/
+
+# Node
+node_modules/
+
+# Secrets / runtime data
+.env
+usda_api/data/
