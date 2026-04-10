@@ -21,6 +21,11 @@ function escapeHtml(s) {
 
 function requirePasswordLogin(req, res, next) {
   if (req.session && req.session.adminUserId && req.session.adminPasswordOk) {
+    const role = String(req.session.userRole || "");
+    if (role && role !== "admin") {
+      res.redirect("/account");
+      return;
+    }
     next();
     return;
   }
@@ -158,6 +163,7 @@ function adminRouter(opts) {
     req.session.adminUserId = r.user.id;
     req.session.adminPasswordOk = true;
     req.session.adminMfaOk = false;
+    req.session.userRole = String(r.user.role || "user");
 
      if (String(r.user.role || "user") !== "admin") {
        res.redirect("/account");

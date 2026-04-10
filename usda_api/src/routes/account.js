@@ -121,6 +121,7 @@ function accountRouter(opts) {
     req.session.adminUserId = r.user.id;
     req.session.adminPasswordOk = true;
     req.session.adminMfaOk = false;
+    req.session.userRole = String(r.user.role || "user");
 
     if (String(r.user.role || "user") === "admin") {
       res.redirect("/admin");
