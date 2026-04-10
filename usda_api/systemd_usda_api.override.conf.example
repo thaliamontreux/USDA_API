@@ -1,0 +1,8 @@
+[Service]
+StateDirectory=usda_api
+StateDirectoryMode=0700
+Environment=KEYSTORE_PATH=/var/lib/usda_api/keys.json
+Environment=ADMIN_STORE_PATH=/var/lib/usda_api/admin_users.json
+ExecStart=
+ExecStart=/usr/bin/env node /opt/usda_api/src/server.js
+ReadWritePaths=/var/lib/usda_api
