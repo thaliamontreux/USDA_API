@@ -78,6 +78,7 @@ curl -H "x-api-key: YOUR_KEY" \
 - Deployment (Ubuntu 24.04 + Nginx + Cloudflare Origin Cert): `DEPLOY_UBUNTU_24_04.md`
 - Admin panel + MFA: `docs/ADMIN_PANEL.md`
 - API usage examples: `docs/USAGE.md`
+- API technical reference: `docs/API_REFERENCE.md`
 
 ## API endpoints
 

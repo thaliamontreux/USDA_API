@@ -87,12 +87,34 @@ app.get("/health", async (req, res) => {
   }
 });
 
+app.get("/healthz", async (req, res) => {
+  try {
+    const { rows } = await query("SELECT 1 AS ok", []);
+    res.json({
+      ok: true,
+      module: "usdafooddb",
+      service: "usda-api",
+      version: "0.1.0",
+      db: rows && rows[0] ? rows[0].ok === 1 : true,
+    });
+  } catch (e) {
+    res.status(503).json({
+      ok: false,
+      module: "usdafooddb",
+      service: "usda-api",
+      version: "0.1.0",
+      error: String(e && e.message ? e.message : e),
+    });
+  }
+});
+
 app.get("/", (req, res) => {
   res.json({
     name: "usda-api",
     version: "0.1.0",
     endpoints: [
       "/health",
+      "/healthz",
       "/admin",
       "/api/v1/foods/search",
       "/api/v1/foods/:fdcId",
