@@ -125,7 +125,7 @@ function bufToB64url(buf){
   const bytes = new Uint8Array(buf);
   let s='';
   for (let i=0;i<bytes.length;i++) s += String.fromCharCode(bytes[i]);
-  const base64 = btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  const base64 = btoa(s).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');
   return base64;
 }
 
@@ -225,7 +225,7 @@ function bufToB64url(buf){
   const bytes = new Uint8Array(buf);
   let s='';
   for (let i=0;i<bytes.length;i++) s += String.fromCharCode(bytes[i]);
-  const base64 = btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  const base64 = btoa(s).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');
   return base64;
 }
 async function readJsonResponse(r){
