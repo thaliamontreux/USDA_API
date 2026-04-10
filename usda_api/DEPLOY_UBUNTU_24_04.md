@@ -2,6 +2,12 @@
 
 This guide deploys `usda_api` on Ubuntu 24.04 behind **Nginx + HTTPS**.
 
+If you want a fully automated "bare server" setup (APT installs + MySQL + dataset download/import + systemd service), use the installer script in the repo:
+
+```bash
+sudo ./install_ubuntu_24_04.sh
+```
+
 ## 0) Prereqs
 
 - Node.js 18+ (22 is fine)

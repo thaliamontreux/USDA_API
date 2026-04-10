@@ -19,6 +19,22 @@ cp .env.example .env
 npm start
 ```
 
+## One-command install (Ubuntu 24.04 bare server)
+
+From the repo root on Ubuntu:
+
+```bash
+sudo ./install_ubuntu_24_04.sh
+```
+
+It will:
+
+- Install MySQL + Node + Python via `apt`
+- Configure MySQL to listen on `127.0.0.1`
+- Prompt you for the USDA dataset ZIP URL (from https://fdc.nal.usda.gov/download-datasets)
+- Import the dataset (skips if already imported unless `--force-rebuild-database`)
+- Install and start the API as a `systemd` service
+
 Open:
 
 - Admin UI: `http://127.0.0.1:8080/admin`
