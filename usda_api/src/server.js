@@ -150,7 +150,17 @@ app.use((req, res) => {
 
 app.use((err, req, res, next) => {
   const status = err && err.statusCode ? err.statusCode : 500;
-  res.status(status).json({ error: String(err && err.message ? err.message : err) });
+  const message = String(err && err.message ? err.message : err);
+  process.stderr.write(
+    `[error] ${req.method} ${req.originalUrl || req.url || ""} -> ${status}: ${message}\n`
+  );
+  if (err && err.stack) process.stderr.write(`${err.stack}\n`);
+
+  const payload = { error: message };
+  if (err && err.code) payload.code = String(err.code);
+  if (err && err.errno !== undefined) payload.errno = err.errno;
+  if (err && err.sqlState) payload.sqlState = String(err.sqlState);
+  res.status(status).json(payload);
 });
 
 app.listen(config.port, config.bindHost, () => {
