@@ -33,9 +33,9 @@ router.get("/search", async (req, res, next) => {
       "FROM nutrient " +
       `WHERE ${whereSql} ` +
       "ORDER BY name " +
-      "LIMIT ?";
+      `LIMIT ${limit}`;
 
-    const finalParams = [...params, limit];
+    const finalParams = [...params];
     const { rows } = await query(sql, finalParams);
 
     const payload = { items: rows, limit, count: rows.length };

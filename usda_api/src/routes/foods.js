@@ -48,9 +48,9 @@ router.get("/search", async (req, res, next) => {
       "FROM food f " +
       `WHERE ${whereSql} ` +
       "ORDER BY f.fdc_id DESC " +
-      "LIMIT ? OFFSET ?";
+      `LIMIT ${limit} OFFSET ${offset}`;
 
-    const finalParams = [...params, limit, offset];
+    const finalParams = [...params];
     const { rows } = await query(sql, finalParams);
 
     const payload = { items: rows, limit, offset, count: rows.length };
@@ -116,9 +116,9 @@ router.get("/:fdcId/nutrients", async (req, res, next) => {
       "JOIN nutrient n ON n.id = fn.nutrient_id " +
       `WHERE ${whereSql} ` +
       "ORDER BY fn.amount DESC " +
-      "LIMIT ?";
+      `LIMIT ${limit}`;
 
-    const finalParams = [...params, limit];
+    const finalParams = [...params];
     const { rows } = await query(sql, finalParams);
 
     const payload = { items: rows, limit, count: rows.length };

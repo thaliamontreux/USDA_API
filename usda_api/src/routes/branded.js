@@ -47,9 +47,9 @@ router.get("/search", async (req, res, next) => {
       "JOIN food f ON f.fdc_id = b.fdc_id " +
       `WHERE ${whereSql} ` +
       "ORDER BY f.fdc_id DESC " +
-      "LIMIT ? OFFSET ?";
+      `LIMIT ${limit} OFFSET ${offset}`;
 
-    const finalParams = [...params, limit, offset];
+    const finalParams = [...params];
     const { rows } = await query(sql, finalParams);
 
     const payload = { items: rows, limit, offset, count: rows.length };
